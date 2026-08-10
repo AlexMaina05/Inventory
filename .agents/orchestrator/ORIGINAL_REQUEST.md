@@ -61,3 +61,31 @@ Current Progress & Mission:
 - Milestones 1, 2, 3, and 4 are 100% DONE with 38 passing tests and CLEAN forensic audit verdicts.
 - You must execute Milestone 5 (R5 Multi-Stage Dockerfile & Docker-Compose) and Milestone 6 (Verification & Automated Tests).
 
+## 2026-07-24T14:12:14Z
+
+# Phase 2: UI/UX Redesign (Fase 2)
+
+Revisione grafica e dell'esperienza utente (UI/UX) per l'applicazione web di gestione inventario (`e:\Code\Inventory\app`), al fine di renderla più intuitiva, moderna e visivamente accattivante (design premium), mantenendola rigorosamente ultra-leggera. Non inserire nuove feature funzionali per mantenere il focus al 100% sulla pulizia dell'interfaccia.
+
+Working directory: `e:\Code\Inventory\app`
+Integrity mode: development
+
+## Requirements
+
+### R1. Ridisegno UI/UX (Premium & Intuitivo)
+Riscrivere il CSS e la struttura HTML (template) per fornire un'esperienza visiva premium: usa font moderni, migliora la disposizione degli elementi (layout a griglia/card), aggiungi feedback visivi chiari (colori accattivanti per i pulsanti, animazioni morbide al passaggio del mouse o all'aggiunta di elementi) per rendere l'uso estremamente intuitivo anche agli utenti meno esperti.
+
+### R2. Mantenimento Leggerezza Assoluta
+Le modifiche grafiche non devono assolutamente introdurre framework JavaScript pesanti (no React/Vue) o enormi librerie CSS (no Bootstrap completo). Usare CSS Vanilla, HTML5 e HTMX (già presente) per la reattività. L'immagine Docker e le performance di runtime devono rimanere inalterate.
+
+## Acceptance Criteria
+
+### Verifica Automatizzata
+- [ ] Il team di agenti deve aggiornare/eseguire i test automatizzati (API testing/Frontend test script) per assicurarsi che il ridisegno non abbia rotto nessuna funzionalità esistente (ricerca, aggiunta, eliminazione).
+
+### UI/UX
+- [ ] Il form di inserimento manuale o da scanner deve essere il punto focale della pagina, per velocizzare l'inserimento senza clic superflui.
+- [ ] La tabella dell'inventario deve essere chiaramente leggibile, con distinzione netta tra le righe (es. zebra striping o shadow sulle card).
+- [ ] I pulsanti di interazione (es. +1/-1 quantità) devono avere dimensioni touch-friendly per l'uso da mobile.
+
+

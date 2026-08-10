@@ -6,7 +6,7 @@ const { renderPage, renderTableRow, renderTableRows, renderToast } = require('..
  * Items API routes plugin for Fastify.
  * @param {import('fastify').FastifyInstance} fastify 
  * @param {Object} options 
- * @param {import('better-sqlite3').Database} options.db 
+ * @param {import('@libsql/client').Client} options.db 
  */
 async function itemRoutes(fastify, options) {
   const db = options.db;
@@ -18,7 +18,7 @@ async function itemRoutes(fastify, options) {
   // GET / -> Serves main HTML web interface
   fastify.get('/', async (request, reply) => {
     try {
-      const items = getItems(db);
+      const items = await getItems(db);
       const html = renderPage(items);
       return reply.type('text/html').send(html);
     } catch (err) {
@@ -31,7 +31,7 @@ async function itemRoutes(fastify, options) {
   fastify.get('/items/search', async (request, reply) => {
     const { q } = request.query || {};
     try {
-      const items = searchItems(db, q);
+      const items = await searchItems(db, q);
       const isHtmx = request.headers['hx-request'] === 'true';
       if (isHtmx) {
         return reply.type('text/html').send(renderTableRows(items));
@@ -89,11 +89,11 @@ async function itemRoutes(fastify, options) {
     name = name.trim();
 
     try {
-      const result = upsertItem(db, { barcode, name, quantity });
+      const result = await upsertItem(db, { barcode, name, quantity });
       const isHtmx = request.headers['hx-request'] === 'true';
 
       if (isHtmx) {
-        const items = getItems(db);
+        const items = await getItems(db);
         const rowsHtml = renderTableRows(items);
         const actionText = result.created
           ? `Added new item "${name}"`
@@ -122,7 +122,7 @@ async function itemRoutes(fastify, options) {
   fastify.get('/api/items', async (request, reply) => {
     const { q } = request.query || {};
     try {
-      const items = searchItems(db, q);
+      const items = await searchItems(db, q);
       const isHtmx = request.headers['hx-request'] === 'true';
       if (isHtmx) {
         return reply.type('text/html').send(renderTableRows(items));
@@ -141,7 +141,7 @@ async function itemRoutes(fastify, options) {
   // GET /api/items/export -> Excel export endpoint
   fastify.get('/api/items/export', async (request, reply) => {
     try {
-      const items = getItems(db);
+      const items = await getItems(db);
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Inventory');
 
@@ -186,7 +186,7 @@ async function itemRoutes(fastify, options) {
     }
 
     try {
-      const item = getItemById(db, numId);
+      const item = await getItemById(db, numId);
       if (!item) {
         return reply.status(404).send({
           error: 'Not Found',
@@ -220,7 +220,7 @@ async function itemRoutes(fastify, options) {
     const payload = { ...(request.query || {}), ...(request.body || {}) };
     const { delta, quantity } = payload;
 
-    const existing = getItemById(db, numId);
+    const existing = await getItemById(db, numId);
     if (!existing) {
       return reply.status(404).send({
         error: 'Not Found',
@@ -230,7 +230,7 @@ async function itemRoutes(fastify, options) {
     }
 
     try {
-      const updatedItem = updateItemQuantity(db, numId, { delta, quantity });
+      const updatedItem = await updateItemQuantity(db, numId, { delta, quantity });
       const isHtmx = request.headers['hx-request'] === 'true';
 
       if (isHtmx) {
@@ -268,7 +268,7 @@ async function itemRoutes(fastify, options) {
       });
     }
 
-    const existing = getItemById(db, numId);
+    const existing = await getItemById(db, numId);
     if (!existing) {
       return reply.status(404).send({
         error: 'Not Found',
@@ -278,7 +278,7 @@ async function itemRoutes(fastify, options) {
     }
 
     try {
-      deleteItem(db, numId);
+      await deleteItem(db, numId);
       const isHtmx = request.headers['hx-request'] === 'true';
 
       if (isHtmx) {

@@ -130,6 +130,9 @@ function renderPage(data = {}, searchQueryParam = '') {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Inventory Management</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/public/css/style.css">
   <!-- HTMX library delivery with fallback -->
   <script src="/public/js/htmx.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/htmx.org@1.9.10'"></script>
@@ -149,7 +152,7 @@ function renderPage(data = {}, searchQueryParam = '') {
         <button id="toggle-scanner-btn" class="btn btn-primary btn-sm">
           <span class="btn-icon">📷</span> Toggle Camera
         </button>
-        <a href="/api/items/export" class="btn btn-secondary btn-sm" download>
+        <a href="/api/items/export" id="export-btn" class="btn btn-secondary btn-sm btn-export" download>
           <span class="btn-icon">📊</span> Export Excel
         </a>
       </div>
@@ -160,120 +163,119 @@ function renderPage(data = {}, searchQueryParam = '') {
     <!-- Notification Toast Target Container -->
     <div id="toast-container"></div>
 
-    <div class="dashboard-grid">
-      <!-- Left Column: Camera Scanner & Input Form -->
-      <section class="panel-column">
-        <!-- Camera Scanner Card -->
-        <div id="scanner-card" class="card scanner-card hidden">
-          <div class="card-header">
-            <h2 class="card-title">Barcode Camera Scanner</h2>
-            <span id="scanner-status" class="status-indicator status-off">Stopped</span>
+    <!-- Hero Deck: Top focal section for Scanner & Form -->
+    <section class="hero-deck">
+      <!-- Camera Scanner Card -->
+      <div id="scanner-card" class="card scanner-card hidden">
+        <div class="card-header">
+          <h2 class="card-title">Barcode Camera Scanner</h2>
+          <span id="scanner-status" class="status-indicator status-off">Stopped</span>
+        </div>
+        <div class="card-body">
+          <div class="camera-wrapper">
+            <div id="reader"></div>
+            <div id="scanner-reticle" class="scanner-reticle">
+              <div class="reticle-line"></div>
+            </div>
           </div>
-          <div class="card-body">
-            <div class="camera-wrapper">
-              <div id="reader"></div>
-              <div id="scanner-reticle" class="scanner-reticle">
-                <div class="reticle-line"></div>
-              </div>
-            </div>
-            <div class="scanner-controls mt-2">
-              <select id="camera-select" class="form-control text-sm">
-                <option value="">Detecting cameras...</option>
-              </select>
-              <label class="toggle-checkbox mt-2">
-                <input type="checkbox" id="auto-submit-toggle" checked>
-                <span>Auto-submit on scan</span>
-              </label>
-            </div>
+          <div class="scanner-controls mt-2">
+            <select id="camera-select" class="form-control text-sm">
+              <option value="">Detecting cameras...</option>
+            </select>
+            <label class="toggle-checkbox mt-2">
+              <input type="checkbox" id="auto-submit-toggle" checked>
+              <span>Auto-submit on scan</span>
+            </label>
           </div>
         </div>
+      </div>
 
-        <!-- Add / Increment Form Card -->
-        <div class="card form-card">
-          <div class="card-header">
-            <h2 class="card-title">Add / Increment Inventory Item</h2>
-          </div>
-          <div class="card-body">
-            <form id="item-form"
-                  hx-post="/api/items/upsert"
-                  hx-target="#items-table-body"
-                  hx-swap="innerHTML"
-                  hx-on::after-request="if(event.detail.successful) { this.reset(); document.getElementById('quantity').value='1'; document.getElementById('barcode').focus(); }">
-              
-              <div class="form-group">
-                <label for="barcode" class="form-label">Barcode <span class="required">*</span></label>
-                <div class="input-with-button">
-                  <input type="text" id="barcode" name="barcode" class="form-control font-mono" 
-                         placeholder="Scan barcode or enter manually" required autofocus autocomplete="off">
-                  <button type="button" id="btn-focus-scan" class="btn btn-outline" title="Ready to scan">📷</button>
-                </div>
+      <!-- Add / Increment Form Card -->
+      <div class="card form-card">
+        <div class="card-header">
+          <h2 class="card-title">Add / Increment Inventory Item</h2>
+        </div>
+        <div class="card-body">
+          <form id="item-form"
+                hx-post="/api/items/upsert"
+                hx-target="#items-table-body"
+                hx-swap="innerHTML"
+                hx-on::after-request="if(event.detail.successful) { this.reset(); document.getElementById('quantity').value='1'; document.getElementById('barcode').focus(); }">
+            
+            <div class="form-group">
+              <label for="barcode" class="form-label">Barcode <span class="required">*</span></label>
+              <div class="input-with-button">
+                <input type="text" id="barcode" name="barcode" class="form-control font-mono" 
+                       placeholder="Scan barcode or enter manually" required autofocus autocomplete="off">
+                <button type="button" id="btn-focus-scan" class="btn btn-outline" title="Ready to scan">📷</button>
               </div>
+            </div>
 
-              <div class="form-group">
-                <label for="name" class="form-label">Item Name <span class="required">*</span></label>
-                <input type="text" id="name" name="name" class="form-control" 
-                       placeholder="e.g. Widget A, USB-C Cable" required autocomplete="off">
-              </div>
+            <div class="form-group">
+              <label for="name" class="form-label">Item Name <span class="required">*</span></label>
+              <input type="text" id="name" name="name" class="form-control" 
+                     placeholder="e.g. Widget A, USB-C Cable" required autocomplete="off">
+            </div>
 
-              <div class="form-group">
-                <label for="quantity" class="form-label">Quantity Add/Increment</label>
-                <div class="quantity-stepper">
-                  <button type="button" class="btn btn-outline btn-step" onclick="const q=document.getElementById('quantity'); q.value=Math.max(1, parseInt(q.value||1)-1);">-</button>
-                  <input type="number" id="quantity" name="quantity" class="form-control text-center" 
-                         value="1" min="1" required>
-                  <button type="button" class="btn btn-outline btn-step" onclick="const q=document.getElementById('quantity'); q.value=parseInt(q.value||1)+1;">+</button>
-                </div>
+            <div class="form-group">
+              <label for="quantity" class="form-label">Quantity Add/Increment</label>
+              <div class="quantity-stepper">
+                <button type="button" class="btn btn-outline btn-step" onclick="const q=document.getElementById('quantity'); q.value=Math.max(1, parseInt(q.value||1)-1);">-</button>
+                <input type="number" id="quantity" name="quantity" class="form-control text-center" 
+                       value="1" min="1" required>
+                <button type="button" class="btn btn-outline btn-step" onclick="const q=document.getElementById('quantity'); q.value=parseInt(q.value||1)+1;">+</button>
               </div>
+            </div>
 
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary btn-block">
-                  <span class="btn-icon">➕</span> Upsert Inventory Item
-                </button>
-              </div>
-            </form>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary btn-block">
+                <span class="btn-icon">➕</span> Upsert Inventory Item
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Inventory Table Section placed below Hero Deck -->
+    <section class="inventory-section">
+      <div class="card table-card">
+        <div class="card-header table-header-flex">
+          <h2 class="card-title">Inventory Items</h2>
+          <!-- Real-time Search Bar -->
+          <div class="search-box">
+            <input type="search" 
+                   id="search-input"
+                   name="q" 
+                   value="${escapeHtml(searchQuery)}" 
+                   placeholder="Search barcode or name..." 
+                   class="form-control form-control-sm"
+                   hx-get="/items/search"
+                   hx-trigger="keyup changed delay:300ms, search"
+                   hx-target="#items-table-body"
+                   hx-swap="innerHTML">
           </div>
         </div>
-      </section>
-
-      <!-- Right Column: Inventory Table & Real-time Search -->
-      <section class="panel-column">
-        <div class="card table-card">
-          <div class="card-header table-header-flex">
-            <h2 class="card-title">Inventory Items</h2>
-            <!-- Real-time Search Bar -->
-            <div class="search-box">
-              <input type="search" 
-                     name="q" 
-                     value="${escapeHtml(searchQuery)}" 
-                     placeholder="Search barcode or name..." 
-                     class="form-control form-control-sm"
-                     hx-get="/items/search"
-                     hx-trigger="keyup changed delay:300ms, search"
-                     hx-target="#items-table-body"
-                     hx-swap="innerHTML">
-            </div>
-          </div>
-          <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Barcode</th>
-                    <th>Name</th>
-                    <th>Qty</th>
-                    <th>Updated</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody id="items-table-body">
-                  ${tableRowsHtml}
-                </tbody>
-              </table>
-            </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Barcode</th>
+                  <th>Name</th>
+                  <th>Qty</th>
+                  <th>Updated</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="items-table-body">
+                ${tableRowsHtml}
+              </tbody>
+            </table>
           </div>
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
   </main>
 
   <script src="/public/js/scanner.js"></script>

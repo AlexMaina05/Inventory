@@ -1,12 +1,12 @@
 /**
- * Barcode Scanner Controller wrapping html5-qrcode library
+ * Barcode Scanner Controller (Optimized for iPad & Android)
+ * Wraps html5-qrcode library with native fallbacks and strict rear camera requests.
  */
 class BarcodeScannerController {
   constructor() {
     this.html5Qrcode = null;
     this.isScanning = false;
     this.isCoolingDown = false;
-    this.selectedDeviceId = null;
     
     this.initElements();
     this.bindEvents();
@@ -16,22 +16,20 @@ class BarcodeScannerController {
     this.scannerCard = document.getElementById('scanner-card');
     this.toggleBtn = document.getElementById('toggle-scanner-btn');
     this.statusBadge = document.getElementById('scanner-status');
-    this.cameraSelect = document.getElementById('camera-select');
     this.barcodeInput = document.getElementById('barcode');
     this.autoSubmitToggle = document.getElementById('auto-submit-toggle');
     this.focusScanBtn = document.getElementById('btn-focus-scan');
+    
+    // Nascondiamo il selettore fotocamera manuale dato che forziamo quella posteriore
+    this.cameraSelect = document.getElementById('camera-select');
+    if (this.cameraSelect) {
+      this.cameraSelect.style.display = 'none';
+    }
   }
 
   bindEvents() {
     if (this.toggleBtn) {
       this.toggleBtn.addEventListener('click', () => this.toggleScanner());
-    }
-    if (this.cameraSelect) {
-      this.cameraSelect.addEventListener('change', (e) => {
-        if (this.isScanning) {
-          this.stopScanner().then(() => this.startScanner(e.target.value));
-        }
-      });
     }
     if (this.focusScanBtn) {
       this.focusScanBtn.addEventListener('click', () => {
@@ -65,83 +63,77 @@ class BarcodeScannerController {
     }
   }
 
-  async detectCameras() {
-    if (typeof Html5Qrcode === 'undefined') {
-      if (this.cameraSelect) {
-        this.cameraSelect.innerHTML = '<option value="">Scanner library not loaded</option>';
-      }
-      return;
-    }
-
-    try {
-      const devices = await Html5Qrcode.getCameras();
-      if (devices && devices.length > 0) {
-        if (this.cameraSelect) {
-          this.cameraSelect.innerHTML = '';
-          devices.forEach((device, index) => {
-            const option = document.createElement('option');
-            option.value = device.id;
-            option.textContent = device.label || `Camera ${index + 1}`;
-            this.cameraSelect.appendChild(option);
-          });
-        }
-        this.selectedDeviceId = devices[0].id;
-      } else {
-        if (this.cameraSelect) {
-          this.cameraSelect.innerHTML = '<option value="">No camera detected</option>';
-        }
-      }
-    } catch (err) {
-      console.warn('Camera detection error:', err);
-      if (this.cameraSelect) {
-        this.cameraSelect.innerHTML = '<option value="">Camera access restricted</option>';
-      }
-    }
-  }
-
-  async startScanner(deviceId = null) {
+  async startScanner() {
     if (this.isScanning) return;
 
     if (typeof Html5Qrcode === 'undefined') {
-      alert('Html5Qrcode library is not loaded.');
+      alert('Libreria Scanner non caricata.');
       return;
     }
 
     if (!this.html5Qrcode) {
-      this.html5Qrcode = new Html5Qrcode("reader");
+      // Configurazione per abilitare BarcodeDetector nativo se supportato
+      this.html5Qrcode = new Html5Qrcode("reader", { 
+        experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true
+        }
+      });
     }
 
-    await this.detectCameras();
-
-    const cameraConfig = deviceId || (this.cameraSelect && this.cameraSelect.value ? this.cameraSelect.value : { facingMode: "environment" });
+    // Definiamo i formati supportati per ridurre drasticamente il carico della CPU su iPad
+    let formats = undefined;
+    if (typeof Html5QrcodeSupportedFormats !== 'undefined') {
+      formats = [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39
+      ];
+    }
 
     const scanConfig = {
-      fps: 10,
+      fps: 20, // 20 FPS è il bilanciamento ideale tra performance di lettura e surriscaldamento su iOS
+      formatsToSupport: formats,
       qrbox: (viewWidth, viewHeight) => {
         const minEdge = Math.min(viewWidth, viewHeight);
+        // Formato rettangolare stretto e lungo ottimizzato per i classici codici a barre 1D
         return {
-          width: Math.floor(minEdge * 0.85),
-          height: Math.floor(minEdge * 0.5)
+          width: Math.floor(minEdge * 0.95),
+          height: Math.floor(minEdge * 0.4) 
         };
-      },
-      aspectRatio: 1.333333
+      }
     };
 
     try {
-      this.updateStatus('Starting...', 'status-off');
-      await this.html5Qrcode.start(
-        cameraConfig,
-        scanConfig,
-        (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
-        (errorMessage) => { /* Ignore frame decode errors */ }
-      );
+      this.updateStatus('Avvio...', 'status-off');
+      
+      // Tentativo 1: Forziamo la fotocamera posteriore esatta (environment)
+      try {
+        await this.html5Qrcode.start(
+          { facingMode: { exact: "environment" } },
+          scanConfig,
+          (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
+          (errorMessage) => { /* ignore frame errors */ }
+        );
+      } catch (err) {
+        console.warn("Fotocamera posteriore 'exact' non trovata. Uso fallback generico...", err);
+        // Tentativo 2: Fallback generico per dispositivi senza classificazione esatta
+        await this.html5Qrcode.start(
+          { facingMode: "environment" },
+          scanConfig,
+          (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
+          (errorMessage) => { /* ignore frame errors */ }
+        );
+      }
 
       this.isScanning = true;
-      this.updateStatus('Scanning', 'status-active');
+      this.updateStatus('In Scansione', 'status-active');
     } catch (err) {
       console.error('Failed to start scanner:', err);
-      this.updateStatus('Error', 'status-off');
-      alert('Could not access camera. Please check camera permissions or HTTPS connection.');
+      this.updateStatus('Errore Fotocamera', 'status-off');
+      alert("Impossibile avviare la fotocamera posteriore. Verifica di aver concesso i permessi o prova a usare HTTPS.");
     }
   }
 
@@ -151,7 +143,7 @@ class BarcodeScannerController {
     try {
       await this.html5Qrcode.stop();
       this.isScanning = false;
-      this.updateStatus('Stopped', 'status-off');
+      this.updateStatus('Scanner Fermo', 'status-off');
     } catch (err) {
       console.error('Failed to stop scanner:', err);
     }
@@ -160,19 +152,19 @@ class BarcodeScannerController {
   onScanSuccess(decodedText, decodedResult) {
     if (this.isCoolingDown) return;
 
-    // Cooldown lock for 1.5 seconds to prevent double triggers
+    // Cooldown lock di 1.5 secondi per evitare scansioni doppie
     this.isCoolingDown = true;
     setTimeout(() => { this.isCoolingDown = false; }, 1500);
 
-    // Audio & Haptic feedback
+    // Feedback audio e tattile
     this.playBeepSound();
     if (navigator.vibrate) navigator.vibrate(100);
 
-    // Populate Barcode Input Field
+    // Inserisci il codice a barre nel campo
     if (this.barcodeInput) {
       this.barcodeInput.value = decodedText;
       
-      // Auto-submit or focus next field
+      // Submit automatico via HTMX
       if (this.autoSubmitToggle && this.autoSubmitToggle.checked) {
         const form = document.getElementById('item-form');
         if (form && typeof htmx !== 'undefined') {
@@ -193,14 +185,14 @@ class BarcodeScannerController {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, ctx.currentTime); // 880Hz (A5)
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
       gain.gain.setValueAtTime(0.1, ctx.currentTime);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.1);
     } catch (e) {
-      // AudioContext blocked or unavailable
+      // Ignora blocchi audio del browser
     }
   }
 
@@ -212,7 +204,6 @@ class BarcodeScannerController {
   }
 }
 
-// Initialize Controller on DOM load
 document.addEventListener('DOMContentLoaded', () => {
   window.scannerController = new BarcodeScannerController();
 });
