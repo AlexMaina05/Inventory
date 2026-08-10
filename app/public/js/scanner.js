@@ -72,12 +72,8 @@ class BarcodeScannerController {
     }
 
     if (!this.html5Qrcode) {
-      // Configurazione per abilitare BarcodeDetector nativo se supportato
-      this.html5Qrcode = new Html5Qrcode("reader", { 
-        experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true
-        }
-      });
+      // Rimossa l'opzione sperimentale useBarCodeDetectorIfSupported per evitare crash su iOS
+      this.html5Qrcode = new Html5Qrcode("reader");
     }
 
     // Definiamo i formati supportati per ridurre drasticamente il carico della CPU su iPad
@@ -94,11 +90,10 @@ class BarcodeScannerController {
     }
 
     const scanConfig = {
-      fps: 20, // 20 FPS è il bilanciamento ideale tra performance di lettura e surriscaldamento su iOS
+      fps: 20, 
       formatsToSupport: formats,
       qrbox: (viewWidth, viewHeight) => {
         const minEdge = Math.min(viewWidth, viewHeight);
-        // Formato rettangolare stretto e lungo ottimizzato per i classici codici a barre 1D
         return {
           width: Math.floor(minEdge * 0.95),
           height: Math.floor(minEdge * 0.4) 
@@ -117,15 +112,28 @@ class BarcodeScannerController {
           (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
           (errorMessage) => { /* ignore frame errors */ }
         );
-      } catch (err) {
-        console.warn("Fotocamera posteriore 'exact' non trovata. Uso fallback generico...", err);
-        // Tentativo 2: Fallback generico per dispositivi senza classificazione esatta
-        await this.html5Qrcode.start(
-          { facingMode: "environment" },
-          scanConfig,
-          (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
-          (errorMessage) => { /* ignore frame errors */ }
-        );
+      } catch (err1) {
+        console.warn("Fotocamera 'exact environment' fallita, provo 'environment' generico...", err1);
+        
+        // Tentativo 2: Fallback generico per environment
+        try {
+          await this.html5Qrcode.start(
+            { facingMode: "environment" },
+            scanConfig,
+            (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
+            (errorMessage) => { /* ignore frame errors */ }
+          );
+        } catch (err2) {
+           console.warn("Fotocamera 'environment' fallita, provo qualsiasi fotocamera...", err2);
+           
+           // Tentativo 3: Fallback totale, usa la prima fotocamera disponibile (anche frontale)
+           await this.html5Qrcode.start(
+            { facingMode: "user" }, // Fallback estremo alla frontale o default
+            scanConfig,
+            (decodedText, decodedResult) => this.onScanSuccess(decodedText, decodedResult),
+            (errorMessage) => { /* ignore frame errors */ }
+          );
+        }
       }
 
       this.isScanning = true;
@@ -133,7 +141,7 @@ class BarcodeScannerController {
     } catch (err) {
       console.error('Failed to start scanner:', err);
       this.updateStatus('Errore Fotocamera', 'status-off');
-      alert("Impossibile avviare la fotocamera posteriore. Verifica di aver concesso i permessi o prova a usare HTTPS.");
+      alert(`Impossibile avviare la fotocamera. Errore: ${err.name || err.message || err}. Controlla i permessi del browser.`);
     }
   }
 
