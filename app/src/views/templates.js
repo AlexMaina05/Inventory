@@ -312,6 +312,57 @@ function renderPage(items, categories = []) {
                });
              }
           });
+
+          // Sound Effects Engine
+          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          window.playSound = function(type) {
+            try {
+              if (audioCtx.state === 'suspended') audioCtx.resume();
+              const osc = audioCtx.createOscillator();
+              const gain = audioCtx.createGain();
+              osc.connect(gain);
+              gain.connect(audioCtx.destination);
+              
+              if (type === 'success') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(1046, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.2);
+              } else if (type === 'error') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                osc.frequency.linearRampToValueAtTime(100, audioCtx.currentTime + 0.3);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.3);
+              } else if (type === 'scan') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(1200, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + 0.1);
+              }
+            } catch (e) {
+              console.warn("Audio blocked by browser", e);
+            }
+          };
+
+          // Aggancia i suoni ad HTMX
+          document.body.addEventListener('htmx:afterRequest', function(evt) {
+            if (evt.detail.successful) {
+              // Suono di successo solo per modifiche (POST, PATCH, DELETE, PUT)
+              if (evt.detail.requestConfig.verb !== 'get') {
+                window.playSound('success');
+              }
+            } else {
+              window.playSound('error');
+            }
+          });
         </script>
       </body>
     </html>
