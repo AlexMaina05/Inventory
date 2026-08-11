@@ -2,35 +2,53 @@ const path = require('path');
 const fastify = require('fastify');
 const formbody = require('@fastify/formbody');
 const fastifyStatic = require('@fastify/static');
+const fastifyCookie = require('@fastify/cookie');
 const itemRoutes = require('./routes/items');
 
-/**
- * Builds and configures the Fastify application instance.
- * @param {Object} options 
- * @param {import('better-sqlite3').Database} [options.db] 
- * @param {boolean} [options.logger=false] 
- * @returns {import('fastify').FastifyInstance}
- */
 function buildApp(options = {}) {
   const app = fastify({
     logger: options.logger || false
   });
 
-  // Register static file plugin serving app/public at /public
   app.register(fastifyStatic, {
     root: path.join(__dirname, '../public'),
     prefix: '/public/'
   });
 
-  // Register form body parser plugin for HTML form submissions
   app.register(formbody);
+  app.register(fastifyCookie);
 
-  // Register API routes with database dependency injection
+  // Auth Middleware
+  app.addHook('preHandler', (request, reply, done) => {
+    const requiredPin = process.env.APP_PIN;
+    if (requiredPin) {
+      const url = request.url;
+      const isPublic = url.startsWith('/public/') || url === '/login' || url === '/api/login';
+      
+      if (!isPublic) {
+        const userPin = request.cookies.auth_pin;
+        if (userPin !== requiredPin) {
+          if (url.startsWith('/api/') || request.headers['hx-request']) {
+            // Se è una richiesta HTMX o API, e fallisce, HTMX gestirà o ignorare, 
+            // per HTMX potremmo forzare redirect tramite header HX-Redirect
+            if (request.headers['hx-request']) {
+              reply.header('HX-Redirect', '/login');
+            }
+            reply.status(401).send({ error: 'Unauthorized', message: 'PIN required' });
+            return;
+          }
+          reply.redirect('/login');
+          return;
+        }
+      }
+    }
+    done();
+  });
+
   if (options.db) {
     app.register(itemRoutes, { db: options.db });
   }
 
-  // Centralized error handler
   app.setErrorHandler((error, request, reply) => {
     if (error.validation) {
       return reply.status(400).send({

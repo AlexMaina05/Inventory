@@ -1,293 +1,320 @@
 /**
- * HTML Escaping utility to prevent XSS attacks.
- * @param {string|number} str 
- * @returns {string}
+ * HTML Templates per SSR
  */
-function escapeHtml(str) {
-  if (str === undefined || str === null) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+
+function head(title = "Inventory") {
+  return `
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+      <title>${title}</title>
+      
+      <!-- PWA Meta Tags -->
+      <link rel="manifest" href="/public/manifest.json">
+      <meta name="theme-color" content="#4f46e5">
+      <meta name="apple-mobile-web-app-capable" content="yes">
+      <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+      
+      <link rel="stylesheet" href="/public/css/style.css">
+      <!-- Includiamo la libreria html5-qrcode dal CDN -->
+      <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+      <!-- Includiamo HTMX -->
+      <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+      
+      <!-- Dark Mode inline script per evitare il flash bianco -->
+      <script>
+        if (localStorage.getItem('theme') === 'dark') {
+          document.documentElement.classList.add('dark-theme');
+          document.addEventListener('DOMContentLoaded', () => {
+             document.body.classList.add('dark-theme');
+          });
+        }
+      </script>
+    </head>
+  `;
 }
 
-/**
- * Renders a single table row element for an item.
- * @param {Object} item 
- * @returns {string} HTML <tr> string
- */
-function renderTableRow(item) {
-  if (!item) return '';
+function renderLogin(errorMsg = '') {
   return `
-    <tr id="item-row-${item.id}" class="item-row">
-      <td class="font-mono font-semibold">${escapeHtml(item.barcode)}</td>
-      <td class="font-medium">${escapeHtml(item.name)}</td>
+    <!DOCTYPE html>
+    <html lang="it">
+      ${head("Login - Inventory")}
+      <body>
+        <div class="container" style="max-width: 400px; margin-top: 10vh;">
+          <div class="card p-0 form-card" style="border-top-color: var(--primary);">
+            <div class="card-header" style="justify-content: center;">
+              <div class="brand">
+                <span class="brand-icon">📦</span>
+                <h1 class="brand-title">Inventory Auth</h1>
+              </div>
+            </div>
+            <div class="card-body">
+              ${errorMsg ? `<div class="toast toast-error mb-4" style="position: static; margin-bottom: 1rem;"><span class="toast-icon">❌</span><span>${errorMsg}</span></div>` : ''}
+              <form action="/api/login" method="POST">
+                <div class="form-group">
+                  <label for="pin" class="form-label">PIN di Accesso <span class="required">*</span></label>
+                  <input type="password" id="pin" name="pin" class="form-control" required autofocus autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Accedi</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+function header() {
+  return `
+    <header class="app-header">
+      <div class="container header-container">
+        <div class="brand">
+          <span class="brand-icon">📦</span>
+          <h1 class="brand-title">Inventory</h1>
+        </div>
+        <div class="header-actions">
+          <button id="theme-toggle" class="btn btn-secondary btn-icon" title="Toggle Dark Mode">🌓</button>
+          <a href="/api/items/export" class="btn btn-secondary btn-icon" title="Esporta in Excel">📥 Excel</a>
+          <button id="toggle-scanner-btn" class="btn btn-primary btn-icon" title="Avvia Scanner">📷 Scan</button>
+          <form action="/api/logout" method="POST" style="display:inline;" hx-post="/api/logout" hx-target="body" hx-swap="outerHTML">
+             <button type="submit" class="btn btn-danger btn-icon" title="Logout" style="min-width:44px;">🚪</button>
+          </form>
+        </div>
+      </div>
+    </header>
+  `;
+}
+
+function scannerCard() {
+  return `
+    <div id="scanner-card" class="card p-0 scanner-card hidden">
+      <div class="card-header">
+        <h2 class="card-title">Scanner Fotocamera</h2>
+        <span id="scanner-status" class="status-indicator status-off">Spento</span>
+      </div>
+      <div class="card-body p-0">
+        <div class="camera-wrapper">
+          <div id="reader"></div>
+          <div class="scanner-reticle">
+            <div class="reticle-line"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function itemForm(categories = []) {
+  let catOptions = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+  return `
+    <div class="card p-0 form-card">
+      <div class="card-header">
+        <h2 class="card-title">Registra Articolo</h2>
+      </div>
+      <div class="card-body">
+        <form id="item-form" 
+              hx-post="/api/items/upsert" 
+              hx-target="#inventory-table-body" 
+              hx-swap="innerHTML"
+              hx-on::after-request="if(event.detail.successful) { this.reset(); document.getElementById('barcode').focus(); }">
+          
+          <div class="form-group">
+            <label for="barcode" class="form-label">Codice a Barre <span class="required">*</span></label>
+            <div class="input-with-button">
+              <input type="text" id="barcode" name="barcode" class="form-control" required autocomplete="off" placeholder="Es. 801234567890">
+              <button type="button" id="btn-focus-scan" class="btn btn-secondary" title="Avvia Fotocamera">📷</button>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="name" class="form-label">Nome Articolo <span class="required">*</span></label>
+            <input type="text" id="name" name="name" class="form-control" required placeholder="Es. Cavo HDMI 2m">
+          </div>
+
+          <div class="form-group">
+            <label for="category" class="form-label">Categoria</label>
+            <input type="text" id="category" name="category" class="form-control" list="category-list" placeholder="Es. Elettronica" autocomplete="off">
+            <datalist id="category-list">
+              ${catOptions}
+            </datalist>
+          </div>
+          
+          <div class="form-group">
+            <label for="quantity" class="form-label">Quantità (da aggiungere)</label>
+            <input type="number" id="quantity" name="quantity" class="form-control" value="1" min="1" required>
+          </div>
+          
+          <div class="form-group flex items-center" style="margin-top: 1.5rem; justify-content: space-between;">
+            <button type="submit" class="btn btn-primary" style="flex: 1;">💾 Salva Articolo</button>
+          </div>
+          <div class="form-group mt-2">
+            <label class="toggle-checkbox">
+              <input type="checkbox" id="auto-submit-toggle" checked>
+              Salva automaticamente alla lettura del codice
+            </label>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function renderTableRow(item) {
+  const badgeHtml = item.category ? `<span class="badge" style="background-color: var(--surface-alt); border: 1px solid var(--border-color); color: var(--text-main); margin-left: 0.5rem;">${item.category}</span>` : '';
+  
+  return `
+    <tr id="row-${item.id}" class="item-row">
+      <td class="font-mono">${item.barcode}</td>
+      <td class="font-medium">${item.name} ${badgeHtml}</td>
       <td>
-        <div class="quantity-controls flex items-center gap-1">
-          <button type="button" 
-                  class="btn btn-sm btn-outline btn-step"
-                  hx-patch="/api/items/${item.id}/quantity"
-                  hx-vals='{"delta": -1}'
-                  hx-target="#item-row-${item.id}"
+        <div class="quantity-stepper">
+          <button class="btn-step" 
+                  hx-patch="/api/items/${item.id}/quantity?delta=-1" 
+                  hx-target="#row-${item.id}" 
                   hx-swap="outerHTML">-</button>
           <input type="number" 
-                 class="form-control form-control-sm text-center qty-input" 
-                 style="width: 60px; display: inline-block;" 
-                 value="${escapeHtml(item.quantity)}" 
+                 value="${item.quantity}" 
                  min="0"
+                 hx-post="/api/items/${item.id}/quantity" 
+                 hx-trigger="change" 
+                 hx-target="#row-${item.id}" 
+                 hx-swap="outerHTML" 
                  name="quantity"
-                 hx-patch="/api/items/${item.id}/quantity"
-                 hx-trigger="change"
-                 hx-target="#item-row-${item.id}"
-                 hx-swap="outerHTML">
-          <button type="button" 
-                  class="btn btn-sm btn-outline btn-step"
-                  hx-patch="/api/items/${item.id}/quantity"
-                  hx-vals='{"delta": 1}'
-                  hx-target="#item-row-${item.id}"
+                 style="width: 50px; text-align: center;">
+          <button class="btn-step" 
+                  hx-patch="/api/items/${item.id}/quantity?delta=1" 
+                  hx-target="#row-${item.id}" 
                   hx-swap="outerHTML">+</button>
         </div>
       </td>
-      <td class="text-muted text-sm">${escapeHtml(item.updated_at || item.created_at)}</td>
-      <td class="table-actions">
-        <button type="button" class="btn btn-sm btn-outline" 
-                onclick="document.getElementById('barcode').value='${escapeHtml(item.barcode)}'; document.getElementById('name').value='${escapeHtml(item.name)}'; document.getElementById('quantity').value='1'; document.getElementById('barcode').focus();">
-          Fill
-        </button>
-        <button type="button" 
-                class="btn btn-sm btn-danger btn-delete" 
+      <td>
+        <button class="btn btn-danger btn-sm btn-icon" 
                 hx-delete="/api/items/${item.id}" 
-                hx-target="closest tr" 
-                hx-swap="outerHTML swap:300ms">
-          🗑 Delete
+                hx-target="#row-${item.id}" 
+                hx-swap="outerHTML swap:300ms"
+                hx-confirm="Sei sicuro di voler eliminare ${item.name}?">
+          🗑️
         </button>
       </td>
     </tr>
   `;
 }
 
-/**
- * Renders table body row items.
- * @param {Array<Object>} items 
- * @returns {string} HTML string of <tr> elements
- */
-function renderTableRows(items = []) {
-  if (!items || items.length === 0) {
-    return `
-      <tr>
-        <td colspan="5" class="text-center text-muted empty-state">
-          No inventory items found. Scan or enter a barcode above to add items.
-        </td>
-      </tr>
-    `;
+function renderTableRows(items) {
+  if (items.length === 0) {
+    return `<tr><td colspan="4" class="text-center text-muted empty-state">Nessun articolo trovato nell'inventario.</td></tr>`;
   }
-
-  return items.map(item => renderTableRow(item)).join('');
+  return items.map(renderTableRow).join('');
 }
 
-/**
- * Renders Out-Of-Band Toast message fragment.
- * @param {string} message 
- * @param {'success'|'error'|'info'} [type='success'] 
- * @returns {string}
- */
-function renderToast(message, type = 'success') {
+function inventoryTable(items, categories = []) {
+  let catOptions = categories.map(c => `<option value="${c}">${c}</option>`).join('');
   return `
-    <div id="toast-container" hx-swap-oob="true">
-      <div class="toast toast-${escapeHtml(type)} animate-slide-in">
-        <span class="toast-icon">${type === 'success' ? '✓' : '⚠'}</span>
-        <span class="toast-message">${escapeHtml(message)}</span>
+    <div class="card p-0 inventory-section">
+      <div class="card-header flex table-header-flex">
+        <h2 class="card-title">Inventario</h2>
+        <div class="flex gap-1" style="width: 100%; max-width: 500px; margin-left: auto;">
+          <select id="category-filter" name="category" class="form-control form-control-sm" style="flex: 1;"
+                  hx-get="/api/items" 
+                  hx-trigger="change" 
+                  hx-target="#inventory-table-body"
+                  hx-include="[name='q']">
+            <option value="">Tutte le cat.</option>
+            ${catOptions}
+          </select>
+          <div class="search-box" style="flex: 2;">
+            <input type="text" name="q" class="form-control form-control-sm" placeholder="Cerca nome o codice..." 
+                   hx-get="/api/items" 
+                   hx-trigger="keyup changed delay:300ms, search" 
+                   hx-target="#inventory-table-body"
+                   hx-include="[name='category']">
+          </div>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Barcode</th>
+              <th>Articolo</th>
+              <th>Quantità</th>
+              <th>Azioni</th>
+            </tr>
+          </thead>
+          <tbody id="inventory-table-body">
+            ${renderTableRows(items)}
+          </tbody>
+        </table>
       </div>
     </div>
   `;
 }
 
-/**
- * Renders full HTML page layout.
- * Supports calling as renderPage(items) or renderPage({ items, searchQuery })
- * @param {Array<Object>|Object} data 
- * @param {string} [searchQueryParam=''] 
- * @returns {string} Complete HTML document
- */
-function renderPage(data = {}, searchQueryParam = '') {
-  let items = [];
-  let searchQuery = searchQueryParam;
-
-  if (Array.isArray(data)) {
-    items = data;
-  } else if (data && typeof data === 'object') {
-    items = data.items || [];
-    searchQuery = data.searchQuery || searchQueryParam || '';
-  }
-
-  const tableRowsHtml = renderTableRows(items);
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Inventory Management</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/public/css/style.css">
-  <!-- HTMX library delivery with fallback -->
-  <script src="/public/js/htmx.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/htmx.org@1.9.10'"></script>
-  <!-- HTML5-QRCode library delivery with fallback -->
-  <script src="/public/js/html5-qrcode.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js'"></script>
-</head>
-<body>
-  <!-- Header Bar / Navbar -->
-  <header class="app-header">
-    <div class="container header-container">
-      <div class="brand">
-        <span class="brand-icon">📦</span>
-        <h1 class="brand-title">Inventory Manager</h1>
-        <span class="badge badge-wal">WAL Active</span>
-      </div>
-      <div class="header-actions">
-        <button id="toggle-scanner-btn" class="btn btn-primary btn-sm">
-          <span class="btn-icon">📷</span> Toggle Camera
-        </button>
-        <a href="/api/items/export" id="export-btn" class="btn btn-secondary btn-sm btn-export" download>
-          <span class="btn-icon">📊</span> Export Excel
-        </a>
+function renderToast(message, type = 'info') {
+  const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+  return `
+    <div id="toast-container" hx-swap-oob="beforeend">
+      <div class="toast toast-${type} animate-slide-in" role="alert">
+        <span class="toast-icon">${icon}</span>
+        <span>${message}</span>
+        <button type="button" onclick="this.parentElement.remove()" style="margin-left: auto; background:none; border:none; cursor:pointer; font-size:1.1rem; padding: 0.25rem;">✕</button>
       </div>
     </div>
-  </header>
+  `;
+}
 
-  <main class="container main-content">
-    <!-- Notification Toast Target Container -->
-    <div id="toast-container"></div>
-
-    <!-- Hero Deck: Top focal section for Scanner & Form -->
-    <section class="hero-deck">
-      <!-- Camera Scanner Card -->
-      <div id="scanner-card" class="card scanner-card hidden">
-        <div class="card-header">
-          <h2 class="card-title">Barcode Camera Scanner</h2>
-          <span id="scanner-status" class="status-indicator status-off">Stopped</span>
-        </div>
-        <div class="card-body">
-          <div class="camera-wrapper">
-            <div id="reader"></div>
-            <div id="scanner-reticle" class="scanner-reticle">
-              <div class="reticle-line"></div>
-            </div>
+function renderPage(items, categories = []) {
+  return `
+    <!DOCTYPE html>
+    <html lang="it">
+      ${head()}
+      <body>
+        ${header()}
+        
+        <main class="container">
+          <div class="hero-deck">
+            ${scannerCard()}
+            ${itemForm(categories)}
           </div>
-          <div class="scanner-controls mt-2">
-            <select id="camera-select" class="form-control text-sm">
-              <option value="">Detecting cameras...</option>
-            </select>
-            <label class="toggle-checkbox mt-2">
-              <input type="checkbox" id="auto-submit-toggle" checked>
-              <span>Auto-submit on scan</span>
-            </label>
-          </div>
-        </div>
-      </div>
+          
+          ${inventoryTable(items, categories)}
+          
+          <!-- Contenitore per i Toasts che HTMX riempirà con hx-swap-oob -->
+          <div id="toast-container"></div>
+        </main>
 
-      <!-- Add / Increment Form Card -->
-      <div class="card form-card">
-        <div class="card-header">
-          <h2 class="card-title">Add / Increment Inventory Item</h2>
-        </div>
-        <div class="card-body">
-          <form id="item-form"
-                hx-post="/api/items/upsert"
-                hx-target="#items-table-body"
-                hx-swap="innerHTML"
-                hx-on::after-request="if(event.detail.successful) { this.reset(); document.getElementById('quantity').value='1'; document.getElementById('barcode').focus(); }">
-            
-            <div class="form-group">
-              <label for="barcode" class="form-label">Barcode <span class="required">*</span></label>
-              <div class="input-with-button">
-                <input type="text" id="barcode" name="barcode" class="form-control font-mono" 
-                       placeholder="Scan barcode or enter manually" required autofocus autocomplete="off">
-                <button type="button" id="btn-focus-scan" class="btn btn-outline" title="Ready to scan">📷</button>
-              </div>
-            </div>
+        <script src="/public/js/scanner.js"></script>
+        <script>
+          // Registrazione Service Worker per la PWA
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+              navigator.serviceWorker.register('/public/sw.js').catch(err => {
+                console.log('SW registration failed: ', err);
+              });
+            });
+          }
 
-            <div class="form-group">
-              <label for="name" class="form-label">Item Name <span class="required">*</span></label>
-              <input type="text" id="name" name="name" class="form-control" 
-                     placeholder="e.g. Widget A, USB-C Cable" required autocomplete="off">
-            </div>
-
-            <div class="form-group">
-              <label for="quantity" class="form-label">Quantity Add/Increment</label>
-              <div class="quantity-stepper">
-                <button type="button" class="btn btn-outline btn-step" onclick="const q=document.getElementById('quantity'); q.value=Math.max(1, parseInt(q.value||1)-1);">-</button>
-                <input type="number" id="quantity" name="quantity" class="form-control text-center" 
-                       value="1" min="1" required>
-                <button type="button" class="btn btn-outline btn-step" onclick="const q=document.getElementById('quantity'); q.value=parseInt(q.value||1)+1;">+</button>
-              </div>
-            </div>
-
-            <div class="form-actions">
-              <button type="submit" class="btn btn-primary btn-block">
-                <span class="btn-icon">➕</span> Upsert Inventory Item
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </section>
-
-    <!-- Inventory Table Section placed below Hero Deck -->
-    <section class="inventory-section">
-      <div class="card table-card">
-        <div class="card-header table-header-flex">
-          <h2 class="card-title">Inventory Items</h2>
-          <!-- Real-time Search Bar -->
-          <div class="search-box">
-            <input type="search" 
-                   id="search-input"
-                   name="q" 
-                   value="${escapeHtml(searchQuery)}" 
-                   placeholder="Search barcode or name..." 
-                   class="form-control form-control-sm"
-                   hx-get="/items/search"
-                   hx-trigger="keyup changed delay:300ms, search"
-                   hx-target="#items-table-body"
-                   hx-swap="innerHTML">
-          </div>
-        </div>
-        <div class="card-body p-0">
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Barcode</th>
-                  <th>Name</th>
-                  <th>Qty</th>
-                  <th>Updated</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="items-table-body">
-                ${tableRowsHtml}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <script src="/public/js/scanner.js"></script>
-</body>
-</html>`;
+          // Script Dark Mode
+          document.addEventListener('DOMContentLoaded', () => {
+             const btn = document.getElementById('theme-toggle');
+             if (btn) {
+               btn.addEventListener('click', () => {
+                  const isDark = document.body.classList.toggle('dark-theme');
+                  localStorage.setItem('theme', isDark ? 'dark' : 'light');
+               });
+             }
+          });
+        </script>
+      </body>
+    </html>
+  `;
 }
 
 module.exports = {
-  escapeHtml,
+  renderPage,
   renderTableRow,
   renderTableRows,
   renderToast,
-  renderPage,
-  renderMainPage: renderPage
+  renderLogin
 };

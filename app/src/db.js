@@ -4,19 +4,16 @@ const { createClient } = require('@libsql/client');
 
 /**
  * Initializes the libSQL/Turso database client.
- * Supports both local sqlite files and remote serverless databases.
- * @param {string} dbUrl - Connection URL (e.g. 'file:./data/inventory.db' or 'libsql://...')
- * @param {string} [authToken] - Auth token for remote Turso DB
+ * @param {string} dbUrl 
+ * @param {string} [authToken] 
  * @returns {import('@libsql/client').Client}
  */
 function initDatabase(dbUrl = process.env.DATABASE_URL || 'file:./data/inventory.db', authToken = process.env.DATABASE_AUTH_TOKEN) {
   if (dbUrl === ':memory:') {
     dbUrl = 'file::memory:?cache=shared';
   } else if (!dbUrl.includes(':')) {
-    // If it's a local path without a scheme (like ./data.db), prepend file:
     dbUrl = `file:${dbUrl}`;
   } else if (/^[a-zA-Z]:/.test(dbUrl)) {
-    // Windows absolute path like C:\..., prepend file:
     dbUrl = `file:${dbUrl}`;
   }
 
@@ -33,8 +30,6 @@ function initDatabase(dbUrl = process.env.DATABASE_URL || 'file:./data/inventory
     authToken: authToken,
   });
 
-  // Execute schema initialization synchronously/fire-and-forget for simplicity here,
-  // but usually better to await it in server startup.
   db.execute(`
     CREATE TABLE IF NOT EXISTS items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,22 +39,22 @@ function initDatabase(dbUrl = process.env.DATABASE_URL || 'file:./data/inventory
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
-  `).catch(console.error);
+  `).then(() => {
+    // Migrazione per aggiungere la colonna category se non esiste
+    return db.execute(`ALTER TABLE items ADD COLUMN category TEXT DEFAULT ''`);
+  }).catch(() => {
+    // Silenziamo l'errore perché la colonna potrebbe già esistere
+  });
 
   return db;
 }
 
 /**
- * Atomically inserts a new item or increments the quantity of an existing barcode.
  * @param {import('@libsql/client').Client} db 
  * @param {Object} itemData 
- * @param {string} itemData.barcode 
- * @param {string} itemData.name 
- * @param {number} itemData.quantity 
  * @returns {Promise<{ item: Object, created: boolean }>}
  */
-async function upsertItem(db, { barcode, name, quantity = 1 }) {
-  // Check if exists
+async function upsertItem(db, { barcode, name, quantity = 1, category = '' }) {
   const existingRes = await db.execute({
     sql: 'SELECT id FROM items WHERE barcode = ?',
     args: [barcode]
@@ -68,94 +63,64 @@ async function upsertItem(db, { barcode, name, quantity = 1 }) {
 
   const result = await db.execute({
     sql: `
-      INSERT INTO items (barcode, name, quantity, created_at, updated_at)
-      VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      INSERT INTO items (barcode, name, quantity, category, created_at, updated_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       ON CONFLICT(barcode) DO UPDATE SET
         quantity = items.quantity + excluded.quantity,
         name = CASE WHEN excluded.name IS NOT NULL AND excluded.name != '' THEN excluded.name ELSE items.name END,
+        category = CASE WHEN excluded.category IS NOT NULL AND excluded.category != '' THEN excluded.category ELSE items.category END,
         updated_at = CURRENT_TIMESTAMP
       RETURNING *;
     `,
-    args: [barcode, name, quantity]
+    args: [barcode, name, quantity, category]
   });
 
   return { item: result.rows[0], created: !existing };
 }
 
-/**
- * Retrieves all items, optionally filtered by search query.
- * @param {import('@libsql/client').Client} db 
- * @param {string} [search] 
- * @returns {Promise<Array<Object>>}
- */
-async function getItems(db, search) {
+async function getItems(db, search, categoryFilter) {
+  let sql = 'SELECT * FROM items WHERE 1=1';
+  let args = [];
+
   if (search && search.trim()) {
     const term = `%${search.trim()}%`;
-    const res = await db.execute({
-      sql: 'SELECT * FROM items WHERE barcode LIKE ? OR name LIKE ? ORDER BY id DESC',
-      args: [term, term]
-    });
-    return res.rows;
+    sql += ' AND (barcode LIKE ? OR name LIKE ?)';
+    args.push(term, term);
   }
-  const res = await db.execute('SELECT * FROM items ORDER BY id DESC');
+
+  if (categoryFilter && categoryFilter.trim()) {
+    sql += ' AND category = ?';
+    args.push(categoryFilter.trim());
+  }
+
+  sql += ' ORDER BY id DESC';
+
+  const res = await db.execute({ sql, args });
   return res.rows;
 }
 
-/**
- * Retrieves a single item by ID.
- * @param {import('@libsql/client').Client} db 
- * @param {number|string} id 
- * @returns {Promise<Object|undefined>}
- */
 async function getItemById(db, id) {
-  const res = await db.execute({
-    sql: 'SELECT * FROM items WHERE id = ?',
-    args: [id]
-  });
+  const res = await db.execute({ sql: 'SELECT * FROM items WHERE id = ?', args: [id] });
   return res.rows[0];
 }
 
-/**
- * Retrieves a single item by Barcode.
- * @param {import('@libsql/client').Client} db 
- * @param {string} barcode 
- * @returns {Promise<Object|undefined>}
- */
 async function getItemByBarcode(db, barcode) {
-  const res = await db.execute({
-    sql: 'SELECT * FROM items WHERE barcode = ?',
-    args: [barcode]
-  });
+  const res = await db.execute({ sql: 'SELECT * FROM items WHERE barcode = ?', args: [barcode] });
   return res.rows[0];
 }
 
-/**
- * Searches items by barcode or name (case-insensitive LIKE).
- * @param {import('@libsql/client').Client} db 
- * @param {string} query 
- * @returns {Promise<Array<Object>>}
- */
-async function searchItems(db, query) {
-  if (query === undefined || query === null || typeof query !== 'string' || query.trim() === '') {
+async function searchItems(db, query, categoryFilter) {
+  if ((!query || query.trim() === '') && (!categoryFilter || categoryFilter.trim() === '')) {
     return getItems(db);
   }
-  const term = `%${query.trim()}%`;
-  const res = await db.execute({
-    sql: 'SELECT * FROM items WHERE barcode LIKE ? OR name LIKE ? ORDER BY id DESC',
-    args: [term, term]
-  });
-  return res.rows;
+  return getItems(db, query, categoryFilter);
 }
 
-/**
- * Atomically updates item quantity and updated_at by ID.
- * @param {import('@libsql/client').Client} db 
- * @param {number|string} id 
- * @param {Object} options 
- * @param {number} [options.delta] 
- * @param {number} [options.quantity] 
- * @returns {Promise<Object|undefined>}
- */
+async function getCategories(db) {
+  const res = await db.execute("SELECT DISTINCT category FROM items WHERE category != '' ORDER BY category ASC");
+  return res.rows.map(r => r.category);
+}
+
 async function updateItemQuantity(db, id, { delta, quantity } = {}) {
   const numId = parseInt(id, 10);
   if (isNaN(numId)) return undefined;
@@ -166,12 +131,7 @@ async function updateItemQuantity(db, id, { delta, quantity } = {}) {
   if (quantity !== undefined && quantity !== null && quantity !== '') {
     const newQty = Math.max(0, parseInt(quantity, 10) || 0);
     const res = await db.execute({
-      sql: `
-        UPDATE items
-        SET quantity = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-        RETURNING *;
-      `,
+      sql: 'UPDATE items SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING *;',
       args: [newQty, numId]
     });
     return res.rows[0];
@@ -181,34 +141,18 @@ async function updateItemQuantity(db, id, { delta, quantity } = {}) {
     const d = parseInt(delta, 10) || 0;
     const newQty = Math.max(0, item.quantity + d);
     const res = await db.execute({
-      sql: `
-        UPDATE items
-        SET quantity = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-        RETURNING *;
-      `,
+      sql: 'UPDATE items SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? RETURNING *;',
       args: [newQty, numId]
     });
     return res.rows[0];
   }
-
   return item;
 }
 
-/**
- * Deletes item record by ID.
- * @param {import('@libsql/client').Client} db 
- * @param {number|string} id 
- * @returns {Promise<boolean>} True if deleted, false if not found
- */
 async function deleteItem(db, id) {
   const numId = parseInt(id, 10);
   if (isNaN(numId)) return false;
-
-  const res = await db.execute({
-    sql: 'DELETE FROM items WHERE id = ?',
-    args: [numId]
-  });
+  const res = await db.execute({ sql: 'DELETE FROM items WHERE id = ?', args: [numId] });
   return res.rowsAffected > 0;
 }
 
@@ -219,6 +163,7 @@ module.exports = {
   getItemById,
   getItemByBarcode,
   searchItems,
+  getCategories,
   updateItemQuantity,
   deleteItem
 };
