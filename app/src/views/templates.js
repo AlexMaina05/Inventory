@@ -75,6 +75,13 @@ function header() {
         </div>
         <div class="header-actions">
           <button id="theme-toggle" class="btn btn-secondary btn-icon" title="Toggle Dark Mode">🌓</button>
+          
+          <form id="import-form" hx-encoding="multipart/form-data" hx-post="/api/items/import" style="display:none;" hx-on::after-request="this.reset()">
+            <input type="file" id="import-file" name="file" accept=".xlsx" onchange="document.getElementById('import-submit').click()">
+            <button type="submit" id="import-submit"></button>
+          </form>
+          <button onclick="document.getElementById('import-file').click()" class="btn btn-secondary btn-icon" title="Importa da Excel">📤 Importa</button>
+          
           <a href="/api/items/export" class="btn btn-secondary btn-icon" title="Esporta in Excel">📥 Excel</a>
           <button id="toggle-scanner-btn" class="btn btn-primary btn-icon" title="Avvia Scanner">📷 Scan</button>
           <form action="/api/logout" method="POST" style="display:inline;" hx-post="/api/logout" hx-target="body" hx-swap="outerHTML">

@@ -78,6 +78,36 @@ async function upsertItem(db, { barcode, name, quantity = 1, category = '' }) {
   return { item: result.rows[0], created: !existing };
 }
 
+/**
+ * Esegue un upsert massivo in un'unica transazione (ottimale per Vercel/Turso)
+ */
+async function batchUpsertItems(db, itemsArray) {
+  if (!itemsArray || itemsArray.length === 0) return 0;
+  
+  const stmts = itemsArray.map(item => {
+    return {
+      sql: `
+        INSERT INTO items (barcode, name, quantity, category, created_at, updated_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(barcode) DO UPDATE SET
+          quantity = items.quantity + excluded.quantity,
+          name = CASE WHEN excluded.name IS NOT NULL AND excluded.name != '' THEN excluded.name ELSE items.name END,
+          category = CASE WHEN excluded.category IS NOT NULL AND excluded.category != '' THEN excluded.category ELSE items.category END,
+          updated_at = CURRENT_TIMESTAMP;
+      `,
+      args: [
+        item.barcode,
+        item.name || '',
+        item.quantity || 1,
+        item.category || ''
+      ]
+    };
+  });
+
+  await db.batch(stmts, "write");
+  return stmts.length;
+}
+
 async function getItems(db, search, categoryFilter) {
   let sql = 'SELECT * FROM items WHERE 1=1';
   let args = [];
@@ -159,6 +189,7 @@ async function deleteItem(db, id) {
 module.exports = {
   initDatabase,
   upsertItem,
+  batchUpsertItems,
   getItems,
   getItemById,
   getItemByBarcode,

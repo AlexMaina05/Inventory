@@ -1,5 +1,5 @@
 const ExcelJS = require('exceljs');
-const { upsertItem, getItems, getItemById, searchItems, updateItemQuantity, deleteItem, getCategories } = require('../db');
+const { upsertItem, batchUpsertItems, getItems, getItemById, searchItems, updateItemQuantity, deleteItem, getCategories } = require('../db');
 const { renderPage, renderTableRow, renderTableRows, renderToast, renderLogin } = require('../views/templates');
 
 async function itemRoutes(fastify, options) {
@@ -153,6 +153,66 @@ async function itemRoutes(fastify, options) {
         .send(Buffer.from(buffer));
     } catch (err) {
       return reply.status(500).send({ error: 'Internal Server Error' });
+    }
+  });
+
+  fastify.post('/api/items/import', async (request, reply) => {
+    try {
+      const data = await request.file();
+      if (!data) return reply.status(400).send({ error: 'No file uploaded' });
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.read(data.file); // data.file is a stream
+      
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) return reply.status(400).send({ error: 'Empty Excel file' });
+
+      const items = [];
+      let colMap = { barcode: -1, name: -1, category: -1, quantity: -1 };
+
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) {
+          row.eachCell((cell, colNumber) => {
+            const val = cell.value ? cell.value.toString().toLowerCase() : '';
+            if (val.includes('barcode') || val.includes('codice')) colMap.barcode = colNumber;
+            else if (val.includes('name') || val.includes('nome') || val.includes('articolo')) colMap.name = colNumber;
+            else if (val.includes('category') || val.includes('categoria')) colMap.category = colNumber;
+            else if (val.includes('quantity') || val.includes('quantità') || val.includes('qta')) colMap.quantity = colNumber;
+          });
+          return;
+        }
+
+        if (colMap.barcode === -1) {
+           colMap = { barcode: 2, name: 3, category: 4, quantity: 5 };
+        }
+
+        const barcode = row.getCell(colMap.barcode).value;
+        if (!barcode) return;
+
+        const name = row.getCell(colMap.name).value || 'Articolo Importato';
+        const category = row.getCell(colMap.category).value || '';
+        const quantityRaw = row.getCell(colMap.quantity).value;
+        const quantity = parseInt(quantityRaw, 10) || 1;
+
+        items.push({
+          barcode: barcode.toString().trim(),
+          name: name.toString().trim(),
+          category: category.toString().trim(),
+          quantity
+        });
+      });
+
+      const count = await batchUpsertItems(db, items);
+      
+      if (request.headers['hx-request']) {
+        reply.header('HX-Redirect', '/');
+        return reply.send();
+      }
+
+      return reply.redirect('/');
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send({ error: 'Import failed', message: err.message });
     }
   });
 

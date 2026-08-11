@@ -17,6 +17,13 @@ function buildApp(options = {}) {
 
   app.register(formbody);
   app.register(fastifyCookie);
+  
+  // Plugin per l'upload dei file Excel
+  app.register(require('@fastify/multipart'), {
+    limits: {
+      fileSize: 10 * 1024 * 1024 // 10MB massimo
+    }
+  });
 
   // Auth Middleware
   app.addHook('preHandler', (request, reply, done) => {
