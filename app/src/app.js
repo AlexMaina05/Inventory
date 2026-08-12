@@ -25,19 +25,27 @@ function buildApp(options = {}) {
     }
   });
 
-  // Auth Middleware
+  // Auth Middleware & Role Based Access Control
   app.addHook('preHandler', (request, reply, done) => {
-    const requiredPin = process.env.APP_PIN;
-    if (requiredPin) {
+    const adminPin = process.env.APP_PIN_ADMIN;
+    const staffPin = process.env.APP_PIN_STAFF;
+    const legacyPin = process.env.APP_PIN;
+    
+    const requiredAdminPin = adminPin || legacyPin;
+    
+    if (requiredAdminPin || staffPin) {
       const url = request.url;
       const isPublic = url.startsWith('/public/') || url === '/login' || url === '/api/login';
       
       if (!isPublic) {
         const userPin = request.cookies.auth_pin;
-        if (userPin !== requiredPin) {
+        let role = null;
+        
+        if (requiredAdminPin && userPin === requiredAdminPin) role = 'admin';
+        else if (staffPin && userPin === staffPin) role = 'staff';
+
+        if (!role) {
           if (url.startsWith('/api/') || request.headers['hx-request']) {
-            // Se è una richiesta HTMX o API, e fallisce, HTMX gestirà o ignorare, 
-            // per HTMX potremmo forzare redirect tramite header HX-Redirect
             if (request.headers['hx-request']) {
               reply.header('HX-Redirect', '/login');
             }
@@ -47,7 +55,12 @@ function buildApp(options = {}) {
           reply.redirect('/login');
           return;
         }
+        
+        request.user = { role };
       }
+    } else {
+      // Nessun PIN configurato, default admin
+      request.user = { role: 'admin' };
     }
     done();
   });
