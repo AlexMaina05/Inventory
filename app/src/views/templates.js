@@ -22,6 +22,45 @@ function head(title = "Inventory") {
           });
         }
       </script>
+      <style>
+        .low-stock {
+          background-color: rgba(239, 68, 68, 0.1) !important;
+          border-left: 4px solid var(--danger);
+        }
+        .dark-theme .low-stock {
+          background-color: rgba(239, 68, 68, 0.2) !important;
+        }
+        .dashboard-stats {
+          display: flex;
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+          flex-wrap: wrap;
+        }
+        .stat-card {
+          flex: 1;
+          min-width: 150px;
+          background: var(--surface);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius);
+          padding: 1rem;
+          text-align: center;
+          box-shadow: var(--shadow-sm);
+        }
+        .stat-card h3 {
+          margin: 0;
+          font-size: 0.9rem;
+          color: var(--text-muted);
+        }
+        .stat-card .stat-value {
+          font-size: 1.8rem;
+          font-weight: 700;
+          color: var(--primary);
+          margin-top: 0.5rem;
+        }
+        .stat-card.alert .stat-value {
+          color: var(--danger);
+        }
+      </style>
     </head>
   `;
 }
@@ -61,16 +100,19 @@ function header(role) {
   return `
     <header class="app-header">
       <div class="container header-container">
-        <div class="brand">
-          <span class="brand-icon">📦</span>
-          <h1 class="brand-title">Inventory</h1>
-        </div>
+        <a href="/" style="text-decoration: none; color: inherit;">
+          <div class="brand">
+            <span class="brand-icon">📦</span>
+            <h1 class="brand-title">Inventory</h1>
+          </div>
+        </a>
         <div class="header-actions">
           <button id="theme-toggle" class="btn btn-secondary btn-icon" title="Toggle Dark Mode">🌓</button>
           
           <button id="mode-toggle-btn" class="btn btn-secondary btn-icon" style="border-color: var(--warning); color: var(--warning);">🛒 Cassa</button>
 
           ${role === 'admin' ? `
+          <a href="/logs" class="btn btn-secondary btn-icon" title="Storico Movimenti">📜 Logs</a>
           <form id="import-form" hx-encoding="multipart/form-data" hx-post="/api/items/import" style="display:none;" hx-on::after-request="this.reset()">
             <input type="file" id="import-file" name="file" accept=".xlsx" onchange="document.getElementById('import-submit').click()">
             <button type="submit" id="import-submit"></button>
@@ -86,6 +128,26 @@ function header(role) {
         </div>
       </div>
     </header>
+  `;
+}
+
+function statsDashboard(stats) {
+  if (!stats) return '';
+  return `
+    <div class="dashboard-stats">
+      <div class="stat-card">
+        <h3>Varianti Articoli</h3>
+        <div class="stat-value">${stats.totalItems}</div>
+      </div>
+      <div class="stat-card">
+        <h3>Totale Pezzi (Giacenza)</h3>
+        <div class="stat-value">${stats.totalQuantity}</div>
+      </div>
+      <div class="stat-card ${stats.lowStockCount > 0 ? 'alert' : ''}">
+        <h3>Allarmi Sottoscorta</h3>
+        <div class="stat-value">${stats.lowStockCount}</div>
+      </div>
+    </div>
   `;
 }
 
@@ -140,7 +202,7 @@ function itemForm(categories = [], locations = []) {
           <div class="form-group" style="display:flex; gap:1rem;">
             <div style="flex:1;">
               <label for="category" class="form-label">Categoria</label>
-              <input type="text" id="category" name="category" class="form-control" list="category-list" placeholder="Es. Elettronica" autocomplete="off">
+              <input type="text" id="category" name="category" class="form-control" list="category-list" autocomplete="off">
               <datalist id="category-list">${catOptions}</datalist>
             </div>
             <div style="flex:1;">
@@ -150,9 +212,15 @@ function itemForm(categories = [], locations = []) {
             </div>
           </div>
           
-          <div class="form-group">
-            <label for="quantity" class="form-label">Quantità (da aggiungere)</label>
-            <input type="number" id="quantity" name="quantity" class="form-control" value="1" min="1" required>
+          <div class="form-group" style="display:flex; gap:1rem;">
+            <div style="flex:1;">
+              <label for="quantity" class="form-label">Quantità (+)</label>
+              <input type="number" id="quantity" name="quantity" class="form-control" value="1" min="1" required>
+            </div>
+            <div style="flex:1;">
+              <label for="min_stock" class="form-label">Soglia Sottoscorta</label>
+              <input type="number" id="min_stock" name="min_stock" class="form-control" value="0" min="0" required>
+            </div>
           </div>
           
           <div class="form-group flex items-center" style="margin-top: 1.5rem; justify-content: space-between;">
@@ -193,14 +261,18 @@ function renderTableRow(item, role) {
   const catBadgeHtml = item.category ? `<span class="badge" style="background-color: var(--surface-alt); border: 1px solid var(--border-color); color: var(--text-main); margin-left: 0.5rem;">${item.category}</span>` : '';
   const locBadgeHtml = `<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: var(--success); margin-left: 0.5rem;">${item.location}</span>`;
   
+  const isLowStock = item.quantity <= (item.min_stock || 0);
+  const rowClass = isLowStock ? 'item-row low-stock' : 'item-row';
+  const alertIcon = isLowStock ? ' <span title="Sottoscorta!" style="color:var(--danger)">⚠️</span>' : '';
+
   const deleteBtn = role === 'admin' 
     ? `<button class="btn btn-danger btn-sm btn-icon" hx-delete="/api/items/${item.id}" hx-target="#row-${item.id}" hx-swap="outerHTML swap:300ms" hx-confirm="Eliminare ${item.name}?">🗑️</button>` 
     : '';
 
   return `
-    <tr id="row-${item.id}" class="item-row">
+    <tr id="row-${item.id}" class="${rowClass}">
       <td class="font-mono">${item.barcode}</td>
-      <td class="font-medium">${item.name} <br> ${catBadgeHtml} ${locBadgeHtml}</td>
+      <td class="font-medium">${item.name} ${alertIcon}<br> ${catBadgeHtml} ${locBadgeHtml}</td>
       <td>
         <div class="quantity-stepper">
           <button class="btn-step" hx-patch="/api/items/${item.id}/quantity?delta=-1" hx-target="#row-${item.id}" hx-swap="outerHTML">-</button>
@@ -228,17 +300,21 @@ function inventoryTable(items, categories = [], locations = [], role) {
     <div class="card p-0 inventory-section">
       <div class="card-header flex table-header-flex">
         <h2 class="card-title">Inventario</h2>
-        <div class="flex gap-1" style="width: 100%; max-width: 600px; margin-left: auto;">
-          <select name="location" class="form-control form-control-sm" style="flex: 1;" hx-get="/api/items" hx-trigger="change" hx-target="#inventory-table-body" hx-include="[name='q'], [name='category']">
+        <div class="flex gap-1" style="width: 100%; max-width: 650px; margin-left: auto;">
+          <select name="stock" class="form-control form-control-sm" style="flex: 1;" hx-get="/api/items" hx-trigger="change" hx-target="#inventory-table-body" hx-include="[name='q'], [name='category'], [name='location']">
+            <option value="">Tutti</option>
+            <option value="low">⚠️ Sottoscorta</option>
+          </select>
+          <select name="location" class="form-control form-control-sm" style="flex: 1;" hx-get="/api/items" hx-trigger="change" hx-target="#inventory-table-body" hx-include="[name='q'], [name='category'], [name='stock']">
             <option value="">Tutte le posizioni</option>
             ${locOptions}
           </select>
-          <select name="category" class="form-control form-control-sm" style="flex: 1;" hx-get="/api/items" hx-trigger="change" hx-target="#inventory-table-body" hx-include="[name='q'], [name='location']">
+          <select name="category" class="form-control form-control-sm" style="flex: 1;" hx-get="/api/items" hx-trigger="change" hx-target="#inventory-table-body" hx-include="[name='q'], [name='location'], [name='stock']">
             <option value="">Tutte le categorie</option>
             ${catOptions}
           </select>
           <div class="search-box" style="flex: 2;">
-            <input type="text" name="q" class="form-control form-control-sm" placeholder="Cerca nome o codice..." hx-get="/api/items" hx-trigger="keyup changed delay:300ms, search" hx-target="#inventory-table-body" hx-include="[name='category'], [name='location']">
+            <input type="text" name="q" class="form-control form-control-sm" placeholder="Cerca nome o codice..." hx-get="/api/items" hx-trigger="keyup changed delay:300ms, search" hx-target="#inventory-table-body" hx-include="[name='category'], [name='location'], [name='stock']">
           </div>
         </div>
       </div>
@@ -274,7 +350,63 @@ function renderToast(message, type = 'info') {
   `;
 }
 
-function renderPage(items, categories = [], locations = [], role) {
+function renderLogsPage(logs, role) {
+  const logRows = logs.map(l => {
+    let actionBadge = '';
+    if (l.action_type === 'IN') actionBadge = '<span class="badge" style="background-color:var(--success);color:white;">IN (+'+l.qty_change+')</span>';
+    else if (l.action_type === 'OUT') actionBadge = '<span class="badge" style="background-color:var(--warning);color:black;">OUT ('+l.qty_change+')</span>';
+    else if (l.action_type === 'DELETE') actionBadge = '<span class="badge" style="background-color:var(--danger);color:white;">DELETE ('+l.qty_change+')</span>';
+    else actionBadge = '<span class="badge" style="background-color:var(--primary);color:white;">SET ('+l.qty_change+')</span>';
+
+    const dateStr = new Date(l.created_at).toLocaleString('it-IT');
+    
+    return `
+      <tr>
+        <td class="text-muted"><small>${dateStr}</small></td>
+        <td class="font-mono">${l.barcode}</td>
+        <td>${l.name || 'Sconosciuto'} <br><small class="text-muted">Pos: ${l.location}</small></td>
+        <td>${actionBadge}</td>
+        <td><span class="badge" style="border: 1px solid var(--border-color);">${l.operator_role}</span></td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <!DOCTYPE html>
+    <html lang="it">
+      ${head("Storico Movimenti")}
+      <body>
+        ${header(role)}
+        <main class="container">
+          <div class="card p-0">
+            <div class="card-header">
+              <h2 class="card-title">📜 Storico Movimenti (Ultime 200 operazioni)</h2>
+              <a href="/" class="btn btn-secondary btn-sm">⬅ Torna all'Inventario</a>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Data/Ora</th>
+                    <th>Barcode</th>
+                    <th>Articolo & Pos</th>
+                    <th>Azione</th>
+                    <th>Operatore</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${logRows.length > 0 ? logRows : '<tr><td colspan="5" class="text-center text-muted">Nessun log trovato.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+      </body>
+    </html>
+  `;
+}
+
+function renderPage(items, categories = [], locations = [], role, stats = {}) {
   return `
     <!DOCTYPE html>
     <html lang="it">
@@ -283,6 +415,8 @@ function renderPage(items, categories = [], locations = [], role) {
         ${header(role)}
         
         <main class="container">
+          ${statsDashboard(stats)}
+
           <div class="hero-deck">
             ${scannerCard()}
             ${itemForm(categories, locations)}
@@ -300,7 +434,6 @@ function renderPage(items, categories = [], locations = [], role) {
             window.addEventListener('load', () => { navigator.serviceWorker.register('/public/sw.js').catch(console.error); });
           }
 
-          // Script Dark Mode
           document.addEventListener('DOMContentLoaded', () => {
              const btn = document.getElementById('theme-toggle');
              if (btn) {
@@ -345,7 +478,6 @@ function renderPage(items, categories = [], locations = [], role) {
             }
           });
           
-          // Cart Logic e Keystroke Listener (Barcode Esterno)
           let isCartMode = false;
           let cart = {}; 
 
@@ -382,19 +514,16 @@ function renderPage(items, categories = [], locations = [], role) {
               });
             }
 
-            // Keystroke per scanner Bluetooth
             let keys = '';
             let lastTime = Date.now();
             
             document.addEventListener('keydown', (e) => {
-              // Se stiamo scrivendo in un input di testo (es. nome prodotto), ignora la digitazione rapida
               if (e.target.tagName === 'INPUT' && e.target.type !== 'radio' && e.target.type !== 'checkbox') {
-                 // Lascia funzionare l'Enter per fare submit, ma non lanciare global scan
                  return;
               }
 
               const currentTime = Date.now();
-              if (currentTime - lastTime > 100) keys = ''; // troppo lento per essere uno scanner
+              if (currentTime - lastTime > 100) keys = ''; 
               lastTime = currentTime;
               
               if (e.key === 'Enter') {
@@ -437,7 +566,6 @@ function renderPage(items, categories = [], locations = [], role) {
              if (window.playSound) window.playSound('scan');
              
              if (isCartMode) {
-                // Per default scarichiamo dal Main, oppure dall'unica location se ne ha 1 sola
                 const key = barcode + '|Main';
                 if (!cart[key]) cart[key] = { barcode: barcode, location: 'Main', quantity: 0 };
                 cart[key].quantity += 1;
@@ -466,5 +594,6 @@ module.exports = {
   renderTableRow,
   renderTableRows,
   renderToast,
-  renderLogin
+  renderLogin,
+  renderLogsPage
 };
